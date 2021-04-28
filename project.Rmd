@@ -1,0 +1,377 @@
+---
+title: "Exploratory Statistical Analysis on Royal Canadian Yacht Club (RCYC) Dataset"
+author: "Project Group 15: Paul Tang, Jack Duan, Dongfang Yuan"
+subtitle: "with focus on understanding the dining spending habits and the preference of using fitness facilities of RCYC members"
+date: April 1, 2021
+output: 
+  beamer_presentation:
+    theme: "Pittsburgh"
+    colortheme: "orchid"
+    fonttheme: "structurebold"
+    slide_level: 2
+fontsize: 9pt
+---
+
+## Introduction
+
+- Background: We will work with a dataset of 1000 randomly selected RCYC members. The variables in the dataset contain basic information of the members and their RCYC facilities usages. The variables have been jittered (i.e. random noise has been added to them) to anonymize the data. This project aims to identify patterns of how RCYC members use their facilities.
+
+- Outline: First, we will use randomization test to study the difference in median dining spendings between RCYC members who rented a dock and those who did not. Then, we will use linear regression to study the association between RCYC members' spendings at RCYC bars and at RCYC restaurants. Finally, we will use classification tree to predict whether a member used RCYC fitness facilities based on his/her sex and other spendings at RCYC facilities (not counting restaurants and bars).
+
+---
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+# echo=FALSE will stop the code chunk from appearing in the knit document
+# warning=FALSE and message=FALSE will stop R messages from appearing in the knit document
+library(tidyverse)
+
+# here is the data for this project
+RCYC <- read_csv("STA130_project_data.csv")
+
+
+# Data cleaning:
+
+# removes all obs. with NA for dock
+RCYC <- RCYC %>% filter(!is.na(dock))
+
+# for city_dining, island_dining, and bar_spending, replace all NA instances with 0
+RCYC <- RCYC %>% mutate(city_dining = case_when(is.na(city_dining) ~ 0,
+                                                !is.na(city_dining) ~ city_dining),
+                        island_dining = case_when(is.na(island_dining) ~ 0,
+                                                !is.na(island_dining) ~ island_dining),
+                        bar_spending = case_when(is.na(bar_spending) ~ 0,
+                                                !is.na(bar_spending) ~ bar_spending))
+
+# create new column dining_spendings
+RCYC <- RCYC %>% mutate(dining_spendings = city_dining + island_dining + bar_spending)
+```
+
+
+## Research Question 1: Is there a difference between the median spendings in dining (i.e. dollars spent on RCYC's restaurants and bars) of RCYC members who rented a dock at the RCYC in 2017 and the members who didn’t?
+
+- Motivation: To compare the dining spendings at RCYC facilities of members who are dock renters and non-dock renters in the hope to learn more about the dining spending habits of RCYC members.
+
+### Type of statistical test employed: Randomization Test.
+A pair of two hypotheses (called null hypothesis and alternative hypothesis) are formulated based on the research question. In this test, we have
+
+- Null hypothesis: There is no difference in the median spendings in dining at RCYC facilities between members who rented a dock and members who didn't rent a dock (in 2017).
+- Alternative hypothesis: There is a difference in the median spendings in dining at RCYC facilities between members who rented a dock and members who didn't rent a dock (in 2017).
+
+The randomization test answers if there is enough statistical evidence to reject the null hypothesis.
+
+
+---
+
+## Data summary
+
+- Variables used for this question:
+    - *city_dining*: Yearly amount spent on dining at RCYC's restaurants in the city of Toronto (mainland) for 2017.
+    - *island_dining*: Yearly amount spent on dining at RCYC's restaurants on the Toronto Islands for 2017.
+    - *bar_spending*: Yearly amount spent in the RCYC's bars for 2017.
+    - *dock*: Whether the member rent a dock at RCYC in 2017.
+
+- Data wrangling (preparing the data for doing the statistical test):
+
+  1. Removed all observations in the dataset whose entry for *dock* is NA (i.e. no entry for *dock*).
+  2. Replaced the *city_dining* value of all observations in the dataset whose such value is NA to 0 (I decided to not remove observations whose *city_dining* is NA such as to not discard too much data).
+  3. Same as 2 but for *island_dining* and *bar_spending* values.
+  4. Created a new variable *dining_spendings* in the dataset that represents the sum of *city_dining*, *island_dining*, and *bar_spending*.
+
+---
+
+## Visualization (box plot)
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE, fig.height=2, fig.width=5}
+RCYC %>% ggplot(aes(x=dock, y=dining_spendings)) +
+  geom_boxplot(color='black', fill='gray', alpha=0.5) +
+  labs(x='Rented dock (Y = yes; N = no)', y="Dollars spent on RCYC's restaurants and bars") +
+  coord_flip() +
+  theme(text = element_text(size=9))
+```
+```{r, echo=FALSE, message=FALSE, warning=FALSE, results='hide'}
+# Precise median values
+RCYC %>% group_by(dock) %>% summarise(median=median(dining_spendings))
+```
+
+
+- In this dataset, the median spendings in dining at RCYC facilities of members who rented a dock is 1229 dollars, which is higher than that of members who didn't rent a dock, which is 579 dollars (visually, the line inside the respective gray "boxes" indicate the median spendings).
+- There are few dock renters who spent much more in dining at RCYC facilities than others (i.e. spending exceeds 6000 dollars).
+
+---
+
+## Randomization test result
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+# Calculate test statistic
+test_stat <- RCYC %>% group_by(dock) %>% 
+    summarise(medians = median(dining_spendings)) %>% 
+    summarise(value = diff(medians))
+```
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+# Simulation
+set.seed(106)
+repetitions <- 2000;
+simulated_values <- rep(NA, repetitions)
+
+for(i in 1:repetitions){
+  simdata <- RCYC %>% mutate(dock = sample(dock))
+
+  sim_value <- simdata %>% group_by(dock) %>% 
+    summarise(medians = median(dining_spendings)) %>% 
+    summarise(value = diff(medians))
+  
+  simulated_values[i] <- as.numeric(sim_value)
+}
+
+sim <- tibble(median_diff = simulated_values)
+```
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE, fig.show='hide'}
+# Visualization of sample distribution
+
+sim %>% ggplot(aes(x=median_diff)) +
+  geom_histogram(bins=30) + 
+  geom_vline(xintercept=abs(as.numeric(test_stat)), colour='red') +
+  geom_vline(xintercept=-abs(as.numeric(test_stat)), colour='red')
+```
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE, results='hide'}
+# Calculate p-value
+num_more_extreme <- sim %>% filter(abs(median_diff) >= abs(test_stat)) %>% summarise(n())
+
+p_value <- as.numeric(num_more_extreme / repetitions)
+p_value
+```
+
+- A metric used for determining whether there is enough statistical evidence to reject the null hypothesis is the non-negative number called p-value (the smaller the p-value, the more evidence we have to reject the null hypothesis).
+
+- The p-value for this test is 0. This means if the null hypothesis is true, then it is highly unlikely (about 0%) that we will get the different median spendings in RCYC dining facilities between members who rented a dock and members who didn't that we see in this dataset. In short, the 0 p-value is a very strong evidence against the null hypothesis.
+
+- Therefore, I reject the null hypothesis in favour of the alternative hypothesis. Thus, I conclude that it is very likely that there is a difference in the median spendings in dining at RCYC facilities between members who rented a dock and members who didn't rent a dock (in 2017) (in particular, the median spendings in RCYC dining facilities of members who rented a dock is very likely *higher* than that of members who didn't rent a dock).
+
+---
+
+## Limitations of test result
+
+### Limitations
+
+- Even though the Randomization Test result suggests that there is a difference in the median spendings in dining at RCYC facilities between members who rented a dock and members who didn't rent a dock (in 2017), the test cannot guarantee that this conclusion is necessarily true (further testing would be needed to establish this).
+
+- Half of the data in the original dataset has to be discarded since they don't have a *dock* value. This smaller data size could contribute to an increased inaccuracy in the calculated p-value, thus influencing the result; however, this increased inaccuracy is likely to be insignificant to affect the result of the test by any notable amount.
+
+---
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE, results='hide'}
+RCYC <- read_csv("STA130_project_data.csv")
+
+RCYC <- RCYC %>%
+  select(bar_spending, city_dining, island_dining) %>%
+  filter(!is.na(bar_spending)
+         & !is.na(city_dining)
+         & !is.na(island_dining))
+
+#creat new variable
+RCYC <- RCYC %>% mutate(restaurant_spendings = city_dining + island_dining)
+  
+```
+
+
+## Research Question 2: Is there a linear association between members' spendings at RCYC bars and at RCYC restaurants (in 2017)?
+
+- Motivation: To explore the association between members' spendings at RCYC bars and restaurants in the hope to understand more about the dining spending habits of RCYC members.
+
+
+### Type of statistical test employed: Simple Linear Regression.
+
+Linear regression uses the value of a variable (called predictor) to predict the value of another variable (called response). In this test, we have:
+
+- Predictor: A member's spendings at RCYC restaurants.
+- Response: A member's spendings at RCYC bars.
+
+By assessing the accuracy of the predictions made by the linear regression model, we can determine the strength of the linear association between members' spendings in RCYC bars and restaurants.
+
+---
+
+## Data summary
+
+- Variables used for this question:
+    - *city_dining*: Yearly amount spent on dining at RCYC's restaurants in the city of Toronto (mainland) for 2017.
+    - *island_dining*: Yearly amount spent on dining at RCYC's restaurants on the Toronto Islands for 2017.
+    - *bar_spending*: Yearly amount spent in the RCYC's bars for 2017.
+    
+- Data wrangling:
+
+  1. Removed variables that are not *city_dining*,*island_dining*, or *bar_spending* from the dataset.
+  2. Removed all observations in the dataset whose entry for *city_dining*, *island_dining*, or *bar_spending* is NA.
+  3. Created a new variable *restaurant_spendings* in the dataset that represents the sum of *city_dining* add *island_dining*.
+  4. Splited the remaining data to training (80%) and testing(20%).
+  
+---
+
+## Visualization (scatter plot)
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE, fig.height=2.2, fig.width=3}
+RCYC %>%
+ggplot(aes(x=restaurant_spendings, y=bar_spending))+
+  geom_point(alpha=0.5) +
+  labs(x='Restaurant spendings of members in 2017', y="Bar spendings of members in 2017") +
+  theme(text = element_text(size=8))
+```
+
+- By the scatter plot, we can see that there is a weak to moderate positive (i.e. proportional) linear relationship between the restaurant spendings of members and the bar spendings of members.
+- Most members in the dataset spend less than 2000$ at RCYC restautant and bars in 2017, respectively.
+- The plot seems cone-shaped (see Limitations for implication).
+
+---
+
+## Linear regression result
+
+```{r,echo=FALSE, message=FALSE, warning=FALSE, results='hide'}
+model <- lm(bar_spending ~ restaurant_spendings, data = RCYC)
+summary(model)$coefficients
+```
+```{r,echo=FALSE, message=FALSE, warning=FALSE, results='hide'}
+set.seed(116)
+n <- nrow(RCYC)
+training_indices <- sample(1:n, size = round(0.8*n))
+RCYC <- RCYC %>% rowid_to_column()
+train <- RCYC %>% filter(rowid %in% training_indices)
+test <- RCYC %>% filter(!rowid %in% training_indices)
+```
+
+```{r,echo=FALSE, message=FALSE, warning=FALSE, results='hide'}
+model <- lm(bar_spending ~ restaurant_spendings, data = train)
+yhat_test <- predict(model, newdata = test)
+y_test <- test$bar_spending
+sqrt(sum((y_test - yhat_test)^2)/nrow(test))
+```
+
+- The linear regression result suggests that on average, 100 dollar increase in a member's spending at RCYC restaurants correlates to 27 dollars increase in his spending at RCYC bars.
+
+- The p-value (i.e. a metric used to determine if there is enough statistical evidence to establish a linear relationship between the predictor and response) is around 5.15e-38. Such a small p-value may indicate that we have very strong evidence that there is a linear association between the members' spendings at RCYC restaurants and at RCYC bars; however, this result may be invalid, see Limitations.
+
+- The RMSE (i.e. a metric used to determine the prediction accuracy of the linear regression model) is around 505.89$. The large RSME indicates the accuracy of the linear regression model is not great despite there being a (plausible) linear association between the predictor and the response.
+
+- All things considered, there does not seem to be a meaningful association between members' spendings at RCYC restaurants and at RCYC bars. However, future studies may try to include more predictors to achieve a better predictive model.
+
+---
+
+## Limitations of test result
+
+### Limitations
+
+- The scatter plot we obtained is cone-shaped. This fact violates one of the four assumptions that needs to be met in order for the p-value of the linear regression model to be valid. Therefore, the p-value we obtained may be invalid, and there may not be a linear association between the members' spendings at RCYC restaurants and at RCYC bars (this aspect is reflected by the scatterplot as well).
+
+- Slightly more than half of the data in the original dataset has to be discarded since they don't have *city_dining*, *island_dining*, or *bar_spending* values. This smaller data size could contribute to an increased inaccuracy of the linear regression model, thus leading to a potentially higher RSME value. However, this increased inaccuracy is likely to be insignificant to affect the result of the test by any notable amount.
+
+---
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+# echo=FALSE will stop the code chunk from appearing in the knit document
+# warning=FALSE and message=FALSE will stop R messages from appearing in the knit document
+library(rpart)
+library(partykit)
+# here is the data for this project
+RCYC <- read_csv("STA130_project_data.csv")
+
+
+# Data cleaning:
+
+# removes all obs. with NA for Sex, other_spending and fitness.
+RCYC <- RCYC %>% select(Sex, fitness, other_spending, Age) %>%
+         filter(!is.na(Sex))
+
+```
+
+
+## Research Question 3: Can we predict whether a member used RCYC fitness facilities in 2017 based on his/her sex and other spendings at RCYC facilities (not counting restaurants and bars)?
+
+- Motivation: To explore whether a member's sex and his/her total spendings on RCYC facilities reflects his/her preference to use RCYC fitness facilities in the hope to understand more about what type of members prefer to use fitness facilities.
+
+### Type of statistical test: Classification Tree.
+
+A classification tree uses the value of one or more variables (called predictors) to predict the (categorical) value of another variable (called response). In this test, we have:
+
+- Predictors: A member's sex; a member's spendings at RCYC facilities.
+- Response: Whether the member used RCYC fitness facilities.
+
+By assessing the accuracy and error rate of the predictions made by the classification tree, we can determine if a member's sex and his/her total spendings on RCYC facilities reflects his/her preference to use RCYC fitness facilities.
+
+---
+
+## Data summary
+
+- Variables used for this question:
+    - *Sex*: The gender of members('M' for male and 'F' for female).
+    - *Fitness*: "Y" if the member used RCYC fitness facilities in 2017, "N" otherwise.
+    - *other_spending*: Other spendings at RCYC facilities in 2017.
+
+- Data wrangling:
+
+  1. Removed variables that are not *Sex*, *Fitness*, or *other_spending* in the dataset.
+  2. Removed all observations in the dataset whose entry for *Sex* is NA.
+  3. Splited the remaining data to training (80%) and testing (20%).
+  
+---
+
+## Visualization
+```{r, echo=FALSE, message=FALSE, warning=FALSE, fig.height=2, fig.width=5}
+RCYC %>%
+  ggplot(aes(x=Sex, y=other_spending, colour=fitness))+
+  geom_point(alpha = 0.5) +
+  labs(x='Sex (F = Female; M = Male)', y="Other spendings at RCYC facilities in 2017") +
+  theme(text = element_text(size=8)) +
+  coord_flip()
+```
+
+- By the scatter plot, there is not a clear relationship between members' sex, their other spendings at RCYC facilities, and whether they used RCYC fitness facilities.
+- It seems that many women who spent over 400$ at RCYC facilities used RCYC fitness facilities.
+- It seems that a large porpotion of man did not use RCYC fitness facilities.
+
+---
+
+## Classification tree result
+```{r, echo=FALSE, message=FALSE, warning=FALSE, results='hide'}
+set.seed(777)
+n <- nrow(RCYC)
+training_indices <- sample(1:n, size = round(0.8*n))
+RCYC <- RCYC %>% rowid_to_column()
+train <- RCYC %>% filter(rowid %in% training_indices)
+test <- RCYC %>% filter(!(rowid %in% training_indices))
+tree_train <-rpart(fitness ~ other_spending + Sex, data = train)
+y_hat <- predict(tree_train, newdata = test, type = 'class')
+y <- test$fitness
+table(y_hat, y)
+accuracy <- (241+19)/(241+15+125+19)
+accuracy
+```
+```{r, echo=FALSE, message=FALSE, warning=FALSE, fig.show='hide'}
+tree <- rpart(fitness ~ other_spending + Sex, data = RCYC)
+plot(as.party(tree), type = 'simple')
+```
+
+- The accruacy of the classification tree (on testing data) is around 65%, which is not high. This suggests a member's sex and his/her total spendings on RCYC facilities (not counting restaurants and bars) are not meaningful predictors for knowing whether the member used RCYC fitness facilities or not.
+
+- The classification tree predicted, with 30% error rate (i.e. 70% of the predictions are correct), that members who spent less than 493.5$ at RCYC facilities (not counting restaurants and bars) did not use RCYC fitness facilities.
+
+- All things considered, a member's sex and his/her total spendings on RCYC facilities (not counting restaurants and bars) does not reflect accurately on his/her preference to use RCYC fitness facilities. However, future studies may try to include more meaningful predictors such as a member's age to achieve a better predictive accuracy.
+
+---
+
+## Limitations of test result
+
+### Limitations
+
+- Since we used 20% data for testing, only 80% data are used to train the classfication tree. This smaller data size could contribute to an increased inaccuracy of the classification tree. However, this increased inaccuracy is likely to be insignificant to affect the result of the test by any notable amount.
+
+---
+
+## Conclusion
+
+- Summary: 
+    1. The median spendings in RCYC dining facilities of members who rented a dock is very likely *higher* than that of members who didn't rent a dock.
+    2. There does not seem to be a meaningful association between members' spendings at RCYC restaurants and at RCYC bars.
+    3. A member's sex and his/her total spendings on RCYC facilities (not counting restaurants and bars) does not reflect accurately on his/her preference to use RCYC fitness facilities.
+
+- Next steps:
+    - It is recommended for futre studies to explore whether it is true that the median spendings in RCYC dining facilities of members who rented a dock is higher than that of members who didn't rent a dock.
